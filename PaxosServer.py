@@ -96,7 +96,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
   def get_n_tuple(self):
-    return [self.s["n"], self.node_id]
+    return [self.n, self.node_id]
 
 
   ## compare tuple of n  (n, node_id)
@@ -210,20 +210,18 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
           self.broadcast_accept(msg["n"], self.proposal_queue[0]["command"])
 
     if msg["type"] == PREPARE_REJECT:
-      # PREPARE_REJECT comes with (instance, n, min_n, min_n_proposer)
-      if self.s["n"] < msg["min_n"]: #FIXME use compare
-        self.s["n"] = msg["min_n"] + 1
-
       # abandon all proposal less with number < min_n
-      # but we propose one at a time
-      if msg["n"] < self.s["n"]:
+      # but we propose one at a time so we only have to remove one
+
+      if msg["n"] < self.n: #FIXME use compare
         pass  # this is a rejection for abandoned message
       else:
-        # first time to get rejection for message n\
+        # first time to get rejection for message n
+        self.n = msg["min_n"] + 1
         self.broadcast_prepare()
 
 
-    # messages for ACCEPTOR:
+    ### messages for ACCEPTOR:
     # Note: Acceptor must remember its highest promise for each command instance.
 
     if msg["type"] == PREPARE_REQUEST:
@@ -264,8 +262,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         #QUESTION: Do we have to notify proposer in this case?
 
 
-    # messages for DISTINGUISHED_LEARNERS
-
+    ### messages for DISTINGUISHED_LEARNERS
     if msg["type"]==ACCEPT:
       #comes with (instance, client_id, client_command_id, n,v)
       self.inc_count(self.acceptance_count,)
