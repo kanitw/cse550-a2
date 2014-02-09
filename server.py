@@ -1,11 +1,10 @@
 import sys
 import SocketServer
 
-timeoutFlag = False
 
 class SimpleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
-    timeout = 5
+    timeout = 10
 
     daemon_threads = True
     allow_reuse_address = True
@@ -14,7 +13,6 @@ class SimpleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
     def handle_timeout(self):
-        timeoutFlag = True
         print 'Timeout!'
 
 class MyTCPHandler(SocketServer.BaseRequestHandler):
@@ -37,8 +35,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
 def running():
     server = SimpleServer(('localhost', 9999), MyTCPHandler)
     try:
-        while not timeoutFlag:
-            #server.serve_forever()
+        while True:
             server.handle_request()
     except KeyboardInterrupt:
         sys.exit(0)
