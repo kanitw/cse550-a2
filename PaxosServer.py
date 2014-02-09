@@ -257,10 +257,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     if msg["type"] == ACCEPT_REQUEST:
       # ACCEPT_REQUEST(sender/proposer, n_tuple, v)
+      # FIXME(kanitw): ignore old instance
       self.leader_last_seen = datetime.now()
       if self.compare_n_tuples(msg["n_tuple"], self.get_n_tuple()) > 0:
-        self.send_to_server(msg["sender"], {
-          "n_tuple": msg["n_tuple"]
+        self.send_to_server(msg["sender"], ACCEPT, {
+          "n_tuple": msg["n_tuple"] #FIXME(kanitw) add parameter required by accept below
         })
         self.largest_accepted_proposal_n = msg["n_tuple"][0]
         self.largest_accepted_proposal_cmd = msg["v"]
