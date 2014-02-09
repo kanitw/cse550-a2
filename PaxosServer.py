@@ -303,11 +303,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
     if msg["type"] == ARE_YOU_AWAKE:
-    #send I_AM_AWAKE to pid
+      self.send_to_server(msg["sender"], IM_AWAKE) #TODO do we need any param?
 
     if msg["type"] == PLEASE_UPDATE_ME:
-      send
+      pass
 
-    check_timestamp()
+    self.check_timestamp()
 
-  d
+  def check_timestamp():
+    pass
+    #FIXME(kanitw):
