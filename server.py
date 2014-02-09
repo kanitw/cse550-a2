@@ -15,6 +15,7 @@ class SimpleServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def handle_timeout(self):
         print 'Timeout!'
 
+#TODO move this to another file
 class MyTCPHandler(SocketServer.BaseRequestHandler):
     """
     The RequestHandler class for our server.
