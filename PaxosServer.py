@@ -15,6 +15,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   # s stores persistent information that should be stored in the disk
   s = {
     "n": 0
+    "chosen_command": []
   }
 
   def __init__(self, node_id, nodes_count, RequestHandlerClass):
@@ -36,21 +37,21 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     #FIXME handle timeout
     print 'Timeout!'
 
-  def sendToServer(self, server_id, msg_type, params):
+  def send_to_server(self, server_id, msg_type, params):
     msg = params.copy()
     params["type"] = msg_type
     params["sender"] = self.node_id
 
-    self.log("sendToServer %s: %s" % (server_id, msg))
+    self.log("send_to_server %s: %s" % (server_id, msg))
     # FIXME(kanitw): Shih-wen please finish this method
     pass
 
-  def sendToClient(self, client_id, msg_type, params):
+  def send_to_client(self, client_id, msg_type, params):
     msg = params.copy()
     params["type"] = msg_type
     params["sender"] = self.node_id
 
-    self.log("sendToClient %s: %s" % (client_id, msg))
+    self.log("send_to_client %s: %s" % (client_id, msg))
     # FIXME(kanitw): Shih-wen please finish this method
     pass
 
@@ -69,8 +70,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     for node in range(self.nodes_count):
       if node != self.node_id:
         # for all nodes other than this one!
-        self.sendToServer(node, PREPARE_REQUEST, {
-          "proposer_id": self.node_id,
+        self.send_to_server(node, PREPARE_REQUEST, {
           "n": self.s["n"],
           "command": msg["command"]
         })
@@ -79,7 +79,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     for node in range(self.nodes_count):
       if node != self.node_id:
         # for all nodes other than this one!
-        self.sendToServer(node, ACCEPT_REQUEST, {
+        self.send_to_server(node, ACCEPT_REQUEST, {
           "n": n,
           "command": command
         })
@@ -115,18 +115,20 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.acceptance_count = {}
     self.s["n"] = 0
 
-  def messageHandler(self, msg):
+  def message_handler(self, msg):
+    self.log("receive msg: %s" % msg)
+
     # PROPOSER’s message
     if msg["type"] == CLIENT_REQUEST:
 
       # CLIENT_REQUEST(client_id, client_command_id, command)
 
       if self.node_id != self.current_leader_id:
-        self.sendToClient(msg.client_id, PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
+        self.send_to_client(msg.client_id, PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
       elif self.in_proposal_queue(msg):
         pass  # ignore
       elif self.is_executed(msg):
-        self.sendToClient(msg.client_id, EXECUTED, {"client_command_id": msg.client_command_id})
+        self.send_to_client(msg.client_id, EXECUTED, {"client_command_id": msg.client_command_id})
       else:
         self.proposal_queue.append(msg)
         if len(self.proposal_queue) == 1:  # so it was empty before
@@ -184,13 +186,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.s["n_proposer"] = msg["sender"]
         save_s()
 
-        self.sendToServer(msg["sender"], PREPARE_AGREE, {
+        self.send_to_server(msg["sender"], PREPARE_AGREE, {
           "n": msg["n"],
           "largest_accepted_proposal_n": self.largest_accepted_proposal_n,
           "largest_accepted_proposal_cmd": self.largest_accepted_proposal_cmd
         })
       else:
-        self.sendToServer(msg["sender"], PREPARE_REJECT, {
+        self.send_to_server(msg["sender"], PREPARE_REJECT, {
           "n": msg["n"],
           "my_n": None #FIXME check....
         })
@@ -200,7 +202,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       # ACCEPT_REQUEST(sender/proposer, n_tuple, v)
       self.leader_last_seen = datetime.now()
       if self.compare_n_tuples(msg["n_tuple"], self.get_n_tuple()) > 0:
-        self.sendToServer(msg["sender"], {
+        self.send_to_server(msg["sender"], {
           "n_tuple": msg["n_tuple"]
         })
         self.largest_accepted_proposal_n = msg["n_tuple"][0]
