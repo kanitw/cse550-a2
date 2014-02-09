@@ -65,33 +65,38 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   def is_executed(self, msg):
     #FIXME check the map
 
-  def broadcast_prepare(self):
-    msg = self.proposal_queue[0]
+  # send message to all nodes except itself
+  def broadcast(self, msg_type, params):
     for node in range(self.nodes_count):
       if node != self.node_id:
         # for all nodes other than this one!
-        self.send_to_server(node, PREPARE_REQUEST, {
-          "n": self.s["n"],
-          "command": msg["command"]
+        self.send_to_server(node, msg_type, params)
+
+  def broadcast_prepare(self):
+    msg = self.proposal_queue[0]
+    self.broadcast(PREPARE_REQUEST,{
+      "n_tuple": self.get_n_tuple(),
+      "v": msg["command"]
         })
 
   def broadcast_accept(self, n, command):
-    for node in range(self.nodes_count):
-      if node != self.node_id:
-        # for all nodes other than this one!
-        self.send_to_server(node, ACCEPT_REQUEST, {
+    self.broadcast(ACCEPT_REQUEST, {
           "n": n,
-          "command": command
+      "v": command
         })
 
-  def get_n_tuple(self):
-    return [self.s["n"], self.node_id]
+  def broadcast_execute(self, params):
+    self.broadcast(EXECUTE, params)
 
   def inc_count(self, counter, n):
     if not n in counter:
       counter[n] = 1
-    else
+    else:
       counter[n] += 1
+
+
+  def get_n_tuple(self):
+    return [self.s["n"], self.node_id]
 
 
   ## compare tuple of n  (n, node_id)
