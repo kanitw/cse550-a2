@@ -267,40 +267,31 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.largest_accepted_proposal_cmd = msg["v"]
       else:
         pass
-        #QUESTION: Do we have to notify proposer in this case?
+        #TODO(kanitw): Maybe it's nice to notify proposer in this case?
 
 
     ### messages for DISTINGUISHED_LEARNERS
     if msg["type"]==ACCEPT:
+      # FIXME(kanitw): ignore old instance
       #comes with (instance, client_id, client_command_id, n,v)
-      self.inc_count(self.acceptance_count,)
-      inc_acceptance_count(instance, n)
-        if acceptance_count[instance][n] + 1 > nodes_count/2: # 1=itself!
-          send EXECUTE(instance, v) to all nodes (including itself)
-          send EXECUTED(client_command_id) to client
+      self.inc_count(self.acceptance_count, self.n)
+      if self.acceptance_count[self.n] + 1 == self.nodes_count/2 + 1:
+        # 1=itself!
+        # and we want to broadcast the execute only once
 
+        params = msg.copy()
+        params["instance"] = self.latest_executed_command + 1
 
-    #messages for LEARNERS
+        self.broadcast_execute(params)
+        self.execute(params)
+        self.send_to_client(msg["client_id"], EXECUTED, {
+          "client_command_id": msg["client_command_id"]
+        })
 
-      if msg["type"] == EXECUTE
-    #comes with (instance, client_id, client_command_id, n, v)
-        chosen_commands[instance] = v
-        save_state()
-        if instance == latest_instance + 1
-          i = instance
-          while chosen_command[i] != None:
-          execute(client_id, v)
-          client_latest_executed[client_id] = client_command_id
-          latest_instance = i
-          i++
-
-
-
-      #assume we propose one instance at a time
-      self.reset_instance()
-      if node_id == current_leader_id:
-        propose_next_instance()
-
+    ### messages for LEARNERS
+    if msg["type"] == EXECUTE:
+      # just run execute method (so it behaves similar to the d-learner.
+      self.execute(msg)
 
     if msg["type"] == ARE_YOU_AWAKE:
       self.send_to_server(msg["sender"], IM_AWAKE) #TODO do we need any param?
