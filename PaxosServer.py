@@ -11,13 +11,6 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   daemon_threads = True
   allow_reuse_address = True
 
-
-  # s stores persistent information that should be stored in the disk
-  s = {
-    "n": 0
-    "chosen_command": []
-  }
-
   def __init__(self, node_id, nodes_count, RequestHandlerClass):
     self.node_id = int(node_id)
     self.nodes_count = nodes_count
@@ -28,9 +21,16 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.acceptance_count = {}
     self.leader_last_seen = datetime.now()
 
+    # Persistent objects
+    self.n = 0
+    self.chosen_commands = []
+    self.latest_executed_command = -1
+    self.n_proposer = -1
+    self.load_s()
+
     server_address = ("localhost", 9000+node_id)
 
-    self.load_s()
+
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
   def handle_timeout(self):
@@ -103,32 +103,79 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   def save_s(self):
     pass
-    #FIXME(kanitw) Shih-wen says it's easy
+    #FIXME(kanitw) Shih-wen says it's easy ... save the following
+    #self.n = 0
+    #self.chosen_commands = []
+    #self.latest_executed_command = -1
+    #self.n_proposer ?? ... do we really need this?
+
 
   def load_s(self):
     pass
-    #FIXME(kanitw) Shih-wen says it's easy
+    #FIXME(kanitw) Shih-wen says it's easy ... load what we save!
 
   def reset_instance(self):
-    self.largest_accepted_proposal = None
-    self.promise_count = {}
-    self.acceptance_count = {}
-    self.s["n"] = 0
+    self.largest_accepted_proposal_n = None
+    self.pr= 0
+
+  def execute(self, params):
+    # params include (instance, client_id, client_command_id, n, v)
+
+    instance = params["instance"]
+    command = {
+          "client_id": params["client_id"],
+          "client_command_id": params["client_command_id"],
+          "v": params["v"]
+        }
+
+    while len(self.chosen_commands) < instance:
+      self.chosen_commands.push(None) #push empty slot just in case
+
+    if instance == self.latest_executed_command + 1:
+      #execute it right away
+      if instance == len(self.chosen_commands):
+        self.chosen_commands.push(command)
+      else:
+        self.chosen_commands[instance] = command
+    elif instance > self.latest_executed_command + 1:
+      # newer command ... maybe old instance command is missing
+
+
+
+      # FIXME: ask
+
+      # TODO: special case if the leader ask someone else
+
+
+    save_state()
+    if instance == latest_instance + 1
+      i = instance
+      while chosen_command[i] != None:
+      execute(client_id, v)
+      client_latest_executed[client_id] = client_command_id
+      latest_instance = i
+      i++
+
+
+
+    #assume we propose one instance at a time
+    self.reset_instance()
+    if node_id == current_leader_id:
+      propose_next_instance()
 
   def message_handler(self, msg):
     self.log("receive msg: %s" % msg)
 
-    # PROPOSER’s message
+    ### messages for PROPOSER
     if msg["type"] == CLIENT_REQUEST:
-
       # CLIENT_REQUEST(client_id, client_command_id, command)
 
       if self.node_id != self.current_leader_id:
-        self.send_to_client(msg.client_id, PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
+        self.send_to_client(msg["client_id"], PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
       elif self.in_proposal_queue(msg):
         pass  # ignore
       elif self.is_executed(msg):
-        self.send_to_client(msg.client_id, EXECUTED, {"client_command_id": msg.client_command_id})
+        self.send_to_client(msg["client_id"], EXECUTED, {"client_command_id": msg["client_command_id"]})
       else:
         self.proposal_queue.append(msg)
         if len(self.proposal_queue) == 1:  # so it was empty before
