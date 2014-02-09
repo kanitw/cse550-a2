@@ -24,6 +24,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     # Persistent objects
     self.n = 0
     self.chosen_commands = []
+    self.client_executed_command_map = {}
     self.latest_executed_command = -1
     self.n_proposer = -1
     self.load_s()
@@ -62,7 +63,12 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     #FIXME check if (msg.client_id, msg.client_command_id0 are in queue
     pass
 
-  def is_executed(self, msg):
+  def is_executed(self, client_id, client_command_id):
+    if client_id in self.client_executed_command_map:
+      if client_command_id <= self.client_executed_command_map[client_id]:
+        return True
+    return False
+
     #FIXME check the map
 
   # send message to all nodes except itself
@@ -113,6 +119,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     #self.chosen_commands = []
     #self.latest_executed_command = -1
     #self.n_proposer ?? ... do we really need this?
+    #self.client_executed_command_map = {}
 
 
   def load_s(self):
@@ -179,7 +186,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.send_to_client(msg["client_id"], PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
       elif self.in_proposal_queue(msg):
         pass  # ignore
-      elif self.is_executed(msg):
+      elif self.is_executed(msg["client_id"], msg["client_command_id"]):
         self.send_to_client(msg["client_id"], EXECUTED, {"client_command_id": msg["client_command_id"]})
       else:
         self.proposal_queue.append(msg)
