@@ -43,6 +43,9 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
             sock.close()
 
     def execute_command(self):
+        if len(self.command_list) == 0:
+            return #do nothing
+
         cmdStr = self.command_list[0]
         cmd = cmdStr.split('_')
         if cmd[0] == 'lock':
@@ -63,7 +66,7 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
             #sleep only when it gets the lock (for testing)
             if len(self.lock) > 0:
                 time.sleep(int(cmd[1]))
-                del command_list[0]
+                del self.command_list[0]
                 self.command_id += 1
                 self.execute_command()
 
@@ -82,9 +85,9 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
                 self.lock.add(cmd[1])
             elif cmd[0] == 'unlock':
                 self.lock.remove(cmd[1])
-            del command_list[0]
+            del self.command_list[0]
             self.command_id +=1
-            if len(command_list) > 0:
+            if len(self.command_list) > 0:
                 self.execute_command()
             else:
                 sys.exit(0)

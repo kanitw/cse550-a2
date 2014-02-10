@@ -28,7 +28,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.acceptance_count = {}
 
     # Persistent objects
-    self.n = -1
+    self.n = 0
     self.n_proposer = -1 # who make this server promise current n
     self.latest_executed_command = -1
     self.chosen_commands = []
@@ -44,9 +44,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   def handle_timeout(self):
     self.check_timestamp()
-    self.log("Timeout!")
+    # self.log("Timeout!")
 
-  def send_to_server(self, target_server_id, msg_type, params):
+  def send_to_server(self, target_server_id, msg_type, params={}):
 
     params["type"] = msg_type
     params["server_id"] = self.node_id
@@ -142,7 +142,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     return [msg["n"], msg["server_id"]]
 
   ## compare tuple of n  (n, node_id)
-  
+
   def compare_n_tuples(self, nt1, nt2):
     self.log("compare_n_tuples %s - %s" % (nt1, nt2))
     if nt1[0]-nt2[0] == 0:
@@ -174,7 +174,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.promise_count = {}
     self.acceptance_count = {}
     self.n_proposer = -1
-    self.n = -1
+    self.n = 0
 
   def execute(self, v):
     #v(client_id, client_command_id, command)
@@ -187,7 +187,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.lock_owners[var] = client_id
       elif self.lock_owners[var] != client_id:
         # there is an owner and the requested client is not the owner
-        self.lock_queues.setdefault(var, []).push((client_id, client_command_id))
+        self.lock_queues.setdefault(var, []).append((client_id, client_command_id))
     elif action == "unlock":
       if len(self.lock_queues.setdefault(var, [])) > 0:
         # assign the lock to the new owner and send executed to him
@@ -206,17 +206,17 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     v = params["v"]
 
     while len(self.chosen_commands) < instance:
-      self.chosen_commands.push(None) #push empty slot just in case
+      self.chosen_commands.append(None) #push empty slot just in case
 
     if instance == self.latest_executed_command + 1:
       # the next command to execute, do it right away
       if instance == len(self.chosen_commands):
-        self.chosen_commands.push(v)
+        self.chosen_commands.append(v)
       else:
         self.chosen_commands[instance] = v
 
       i = instance
-      while i < len(self.chosen_commands) and self.chosen_command[i] != None:
+      while i < len(self.chosen_commands) and self.chosen_commands[i] != None:
         v_to_exec = self.chosen_commands[i]
         self.execute(v_to_exec)
         client_id = v_to_exec["client_id"]
@@ -229,8 +229,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       self.reset_instance() # TODO(kanitw): should this be in the while loop?
       if self.node_id == self.current_leader_id:
         self.proposal_queue.pop(0) # remove latest proposed
-        # start proposing next one - broadcast_prepare method will take care of this
-        self.broadcast_prepare()
+        if len(self.proposal_queue) > 0:
+          # start proposing next one - broadcast_prepare method will take care of this
+          self.broadcast_prepare()
 
     elif instance > self.latest_executed_command + 1:
       # newer command ... maybe old instance command is missing
@@ -350,7 +351,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       # ACCEPT_REQUEST(instance, server_id, n, v(client_id, client_command_id, command))
       self.leader_last_seen = datetime.now()
 
-      if self.compare_n_tuples(self.get_msg_n_tuple(msg), self.get_n_tuple()) >= 0:
+      if self.compare_n_tuples(self.get_msg_n_tuple(msg), [self.n, self.n_proposer]) >= 0:
         self.send_to_server(server_id, ACCEPT, {
           "n": msg["n"],
           "v": msg["v"]
@@ -412,7 +413,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   def check_timestamp(self):
     if (datetime.now() - self.leader_last_seen).total_seconds() > MAX_TIMEOUT:
-      if pinging_leader: #we have pinged before!!!!
+      if self.pinging_leader: #we have pinged before!!!!
         pass
       else:
         self.send_to_server(self.current_leader_id, ARE_YOU_AWAKE)
