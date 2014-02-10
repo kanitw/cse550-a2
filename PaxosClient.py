@@ -83,14 +83,20 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
             cmd = cmdStr.split('_')
             if cmd[0] == 'lock':
                 self.lock.add(cmd[1])
+                print ''
+                self.log("===========  LOCK %s  =========== " % cmd[1])
+                print ''
             elif cmd[0] == 'unlock':
                 self.lock.remove(cmd[1])
+                print ''
+                self.log("=========== UNLOCK %s =========== " % cmd[1])
+                print ''
             del self.command_list[0]
             self.command_id +=1
             if len(self.command_list) > 0:
                 self.execute_command()
-            else:
-                sys.exit(0)
+            # else:
+            #     sys.exit(0)
         #get response from the server about the current leader
         #if the leader is not the same, change the leader id and resend the message
         elif msg['type'] == PLEASE_ASK_LEADER:
