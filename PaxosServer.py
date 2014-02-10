@@ -208,19 +208,34 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       if not var in self.lock_owners:
         self.lock_owners[var] = client_id
         self.log("--------- %s locks %s ----------"%(client_id, var))
+
+        if self.current_leader_id == self.node_id:
+          self.send_to_client(client_id, EXECUTED, {
+            "client_command_id": client_command_id
+          })
+
       elif self.lock_owners[var] != client_id:
         # there is an owner and the requested client is not the owner
         self.lock_queues.setdefault(var, []).append((client_id, client_command_id))
         self.log("--------- %s queue in %s ----------"%(client_id, var))
     elif action == "unlock":
       self.log("--------- %s unlocks %s ----------"%(client_id, var))
+      if self.current_leader_id == self.node_id:
+        # inform unlocker
+        self.send_to_client(client_id, EXECUTED, {
+          "client_command_id": client_command_id
+        })
+
       if len(self.lock_queues.setdefault(var, [])) > 0:
         # assign the lock to the new owner and send executed to him
         (new_client_id, new_client_command_id) = self.lock_queues[var].pop(0)
         self.lock_owners[var] = new_client_id
-        self.send_to_client(new_client_id, EXECUTED, {
-          "client_command_id": new_client_command_id
-        })
+
+        if self.current_leader_id == self.node_id:
+          # inform waiting locker
+          self.send_to_client(new_client_id, EXECUTED, {
+            "client_command_id": new_client_command_id
+          })
         self.log("--------- %s gets %s ----------"%(new_client_id, var))
       else:
         self.lock_queues.pop(var, None) #just remove the lock
@@ -412,9 +427,6 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
         self.broadcast_execute(params)
         self.handle_execute_msg(params)
-        self.send_to_client(client_id, EXECUTED, {
-          "client_command_id": client_command_id
-        })
 
 
     ### messages for LEARNERS
