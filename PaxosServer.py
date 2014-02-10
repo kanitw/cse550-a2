@@ -3,6 +3,8 @@ import SocketServer
 from message import *
 from datetime import datetime
 
+MAX_TIMEOUT = 60 # in seconds
+
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   timeout = 5
 
@@ -15,6 +17,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.proposal_queue = []
     self.current_leader_id = 1 # 1 by default
     self.leader_last_seen = datetime.now()
+    self.pinging_leader = False
 
     # instance based object -- should be clean every new instnace round
     self.largest_accepted_proposal = (-1, None)
@@ -30,6 +33,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.load_state()
     self.lock_owners = {}
     self.lock_queues = {}
+
 
     server_address = ("localhost", 9000+node_id)
 
@@ -336,7 +340,6 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         pass
         #NICETODO: Maybe it's nice to notify proposer in this case?
 
-
     ### messages for DISTINGUISHED_LEARNERS
     if msg["type"]==ACCEPT:
       #ACCEPT(instance, n, v(client_id, client_command_id, command))
@@ -367,7 +370,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       self.handle_execute_msg(msg)
 
     if msg["type"] == ARE_YOU_AWAKE:
-      self.send_to_server(server_id, IM_AWAKE) #TODO do we need any param?
+      self.send_to_server(server_id, IM_AWAKE)
+
+    if msg["type"] == IM_AWAKE:
+      self.leader_last_seen = datetime.now()
+      pinging_leader = False
 
     if msg["type"] == PLEASE_UPDATE_ME:
       # we only send PLEASE_UPDATE_ME to the leader
@@ -383,11 +390,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.check_timestamp()
 
   def check_timestamp(self):
-    pass
-    #FIXME(kanitw):
-    #if(datetime.now() - self.leader_last_seen < MAX_TIMEOUT){
-    #    send ARE_YOU_ALIVE message to the current leader
-    #    if timeout:
-    #      #TODO elect leader
-    #}
+    if (datetime.now() - self.leader_last_seen).total_seconds() > MAX_TIMEOUT:
+      if pinging_leader: #we have pinged before!!!!
+        pass
+      else:
+        self.send_to_server(self.current_leader_id, ARE_YOU_AWAKE)
+    else:
+      self.pinging_leader = False
 
