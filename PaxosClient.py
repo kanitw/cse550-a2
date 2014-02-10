@@ -7,7 +7,7 @@ import time
 
 class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
-    timeout = 90
+    timeout = 10
     leader = 1
     lock = set()
     command_id = 1
@@ -64,11 +64,10 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
                 self.sendToServer(self.leader, CLIENT_REQUEST, params)
         elif cmd[0] == 'sleep':
             #sleep only when it gets the lock (for testing)
-            if len(self.lock) > 0:
-                time.sleep(int(cmd[1]))
-                del self.command_list[0]
-                self.command_id += 1
-                self.execute_command()
+            time.sleep(int(cmd[1]))
+            del self.command_list[0]
+            self.command_id += 1
+            self.execute_command()
 
     def handle_timeout(self):
         #ask the leader's neighbor to see who is the new leader
@@ -95,11 +94,10 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
             self.command_id +=1
             if len(self.command_list) > 0:
                 self.execute_command()
-            # else:
-            #     sys.exit(0)
         #get response from the server about the current leader
         #if the leader is not the same, change the leader id and resend the message
         elif msg['type'] == PLEASE_ASK_LEADER:
+
             if self.leader != msg['current_leader_id']:
                 self.leader = msg['current_leader_id']
                 self.execute_command()

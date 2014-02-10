@@ -8,7 +8,7 @@ import json
 MAX_TIMEOUT = 60 # in seconds
 
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-  timeout = 30
+  timeout = 90
 
   daemon_threads = True
   allow_reuse_address = True
