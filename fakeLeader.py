@@ -35,18 +35,18 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         # self.request is the TCP socket connected to the client
         self.server.msg = "test"
 
-        self.server.handle_message()
+        #self.server.handle_message()
         self.data = self.request.recv(1024).strip()
         print "{} wrote:".format(self.client_address[0])
         print self.data
         # just send back the same data, but upper-cased
-        HOST, PORT = "localhost", 7001
+        HOST, PORT = "localhost", 8001
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
         try:
             # Connect to server and send data
             sock.connect((HOST, PORT))
-            sock.sendall(self.data.upper() + "\n")
+            sock.sendall(self.data + "\n")
         finally:
             sock.close()
 
@@ -54,7 +54,7 @@ class MyTCPHandler(SocketServer.BaseRequestHandler):
         #self.request.sendall(self.data.upper())
 
 def running():
-    server = SimpleServer(('localhost', 9999), MyTCPHandler)
+    server = SimpleServer(('localhost', 9001), MyTCPHandler)
     try:
         while True:
             server.handle_request()
