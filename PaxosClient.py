@@ -10,7 +10,6 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     timeout = 10
     leader = 1
     lock = set()
-    contacted_server = 1
     command_id = 1
     daemon_threads = True
     allow_reuse_address = True
@@ -70,8 +69,8 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     def handle_timeout(self):
         #ask the leader's neighbor to see who is the new leader
-        self.contaced_server = (self.contaced_server + 1) % 9
-        self.sendToServer(self.contaced_server, WHOISLEADER, {})
+        self.leader = (self.leader + 1) % 9
+        self.execute_command()
 
 
     def handle_message(self, msg):
@@ -91,10 +90,9 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
                 sys.exit(0)
         #get response from the server about the current leader
         #if the leader is not the same, change the leader id and resend the message
-        elif msg['type'] == LEADERIS:
-            if self.leader_id != msg['leader_id']:
-                self.leader_id = msg['leader_id']
-                self.contaced_server = msg['leader_id']
+        elif msg['type'] == PLEASE_ASK_LEADER:
+            if self.leader_id != msg['current_leader_id']:
+                self.leader_id = msg['current_leader_id']
                 self.execute_command()
 
 
