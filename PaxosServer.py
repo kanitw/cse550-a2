@@ -4,6 +4,8 @@ from message import *
 import socket
 from datetime import datetime
 import json
+import random
+import time
 
 MAX_TIMEOUT = 60 # in seconds
 
@@ -13,10 +15,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   daemon_threads = True
   allow_reuse_address = True
 
-  def __init__(self, server_address, RequestHandlerClass, node_id, nodes_count):
+  def __init__(self, server_address, RequestHandlerClass, node_id, nodes_count, send_fail_rate, alive_time):
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
     self.node_id = int(node_id)
-    self.nodes_count = nodes_count
+    self.nodes_count = int(nodes_count)
+    self.send_fail_rate = float(send_fail_rate)
+    self.alive_time = float(alive_time)
+    self.start_time = time.time()
     self.proposal_queue = []
     self.current_leader_id = 1 # 1 by default
     self.leader_last_seen = datetime.now()
@@ -42,6 +47,12 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.log("+++ Server %s STARTED at port %s +++"%(self.node_id, 9000+node_id))
 
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
+
+  def check_alive(self):
+    if self.alive_time > 0.1 and time.time() > self.start_time + self.alive_time:
+      return True
+    else:
+      return False
 
   def handle_timeout(self):
     self.check_timestamp()
@@ -245,7 +256,12 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   def message_handler(self, msg):
     #self.log("receive msg: %s" % msg)
-
+    # this function checks if the node is still alive
+    if not self.check_alive():
+      return
+    # this simulates message loss with probability of send_fail_rate
+    if random.random() < self.send_fail_rate:
+      return
     client_id = msg.get("client_id")  # id of message sender if it's a message from a client
     server_id = msg.get("server_id")  # id of message sender if it's a message from a server
 
@@ -445,8 +461,8 @@ def running(server):
 
 
 if __name__ == "__main__":
-  if len(sys.argv) != 3:
-    print "usage: PaxosServer.py server_id nodes_count"
+  if len(sys.argv) != 5:
+    print "usage: PaxosServer.py server_id nodes_count send_fail_rate alive_time"
     sys.exit(0)
   server = initialize_server()
   running(server)
