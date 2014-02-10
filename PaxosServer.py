@@ -58,13 +58,14 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.check_timestamp()
     # self.log("Timeout!")
 
-  def send_to_server(self, target_server_id, msg_type, params={}):
-
+  def send_to_server(self, target_server_id, msg_type, params={}, log=True):
+    if log:
+      self.log("send_to_server %s: %s -- %s" % (str(target_server_id), msg_type, params))
     params["type"] = msg_type
     params["server_id"] = self.node_id
     msg = params.copy()
     msgStr = json.dumps(msg)
-    self.log("send_to_server %s: %s" % (str(target_server_id), msgStr))
+
     HOST, PORT = "localhost", 9000 + target_server_id
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -76,13 +77,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       sock.close()
 
   def send_to_client(self, client_id, msg_type, params):
+    self.log("send_to_client %s: %s -- %s" % (str(client_id), msg_type, params))
 
     params["type"] = msg_type
     params["server_id"] = self.node_id
     msg = params.copy()
     msgStr = json.dumps(msg)
 
-    self.log("send_to_client %s: %s" % (str(client_id), msgStr))
     HOST, PORT = "localhost", 8000 + client_id
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
@@ -94,7 +95,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       sock.close()
 
   def log(self, log):
-    print "Server %s: %s" % (self.node_id, log)
+    print "Server %s%s[%s]: %s" % (self.node_id, "*" if self.node_id==self.current_leader_id else " " \
+      , str(self.latest_executed_command), log)
 
   def in_proposal_queue(self, msg):
     for m in self.proposal_queue:
@@ -110,10 +112,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   # send message to all nodes except itself
   def broadcast(self, msg_type, params):
+    self.log("!broadcast: %s -- %s" %  (msg_type, params))
     for node in range(1,self.nodes_count+1):
       if node != self.node_id:
         # for all nodes other than this one!
-        self.send_to_server(node, msg_type, params)
+        self.send_to_server(node, msg_type, params, log=False)
 
   def get_v(self, client_msg):
     return {
@@ -156,7 +159,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   ## compare tuple of n  (n, node_id)
 
   def compare_n_tuples(self, nt1, nt2):
-    self.log("compare_n_tuples %s - %s" % (nt1, nt2))
+    # self.log("compare_n_tuples %s - %s" % (nt1, nt2))
     if nt1[0]-nt2[0] == 0:
       return nt1[1] - nt2[1]
     return nt1[0]-nt2[0]
@@ -197,10 +200,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     if action == "lock":
       if not var in self.lock_owners:
         self.lock_owners[var] = client_id
+        self.log("--------- %s locks %s ----------"%(client_id, var))
       elif self.lock_owners[var] != client_id:
         # there is an owner and the requested client is not the owner
         self.lock_queues.setdefault(var, []).append((client_id, client_command_id))
+        self.log("--------- %s queue in %s ----------"%(client_id, var))
     elif action == "unlock":
+      self.log("--------- %s unlocks %s ----------"%(client_id, var))
       if len(self.lock_queues.setdefault(var, [])) > 0:
         # assign the lock to the new owner and send executed to him
         (new_client_id, new_client_command_id) = self.lock_queues[var].pop(0)
@@ -208,6 +214,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.send_to_client(new_client_id, EXECUTED, {
           "client_command_id": new_client_command_id
         })
+        self.log("--------- %s gets %s ----------"%(new_client_id, var))
       else:
         self.lock_queues.pop(var, None) #just remove the lock
 
@@ -217,8 +224,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     instance = params["instance"]
     v = params["v"]
 
-    while len(self.chosen_commands) < instance:
-      self.chosen_commands.append(None) #push empty slot just in case
+    # self.log(">>>>>> handle_execute_msg i=%s [last=%s] %s"%(instance, self.latest_executed_command, params))
 
     if instance == self.latest_executed_command + 1:
       # the next command to execute, do it right away
@@ -230,11 +236,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       i = instance
       while i < len(self.chosen_commands) and self.chosen_commands[i] != None:
         v_to_exec = self.chosen_commands[i]
+        self.latest_executed_command = i
         self.execute(v_to_exec)
         client_id = v_to_exec["client_id"]
         client_command_id = v_to_exec["client_command_id"]
         self.client_last_executed_command[client_id] = client_command_id
-        self.latest_executed_command = i
         self.save_state()
         i+=1
 
@@ -246,6 +252,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
           self.broadcast_prepare()
 
     elif instance > self.latest_executed_command + 1:
+      while len(self.chosen_commands) < instance:
+        self.chosen_commands.append(None) #push empty slot just in case
       # newer command ... maybe old instance command is missing
       # TODO: ask the leader PLEASE_UPDATE_ME
       # TODO: special case if the leader ask someone else
@@ -255,7 +263,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       pass # ignore old instance
 
   def message_handler(self, msg):
-    #self.log("receive msg: %s" % msg)
+    # self.log("receive msg: %s" % msg)
     # this function checks if the node is still alive
     if not self.check_alive():
       return
@@ -269,10 +277,10 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       instance = msg["instance"]
 
       # ignore old message
-      if instance < self.latest_executed_command:
+      if instance <= self.latest_executed_command:
         return
       # if future message arrive
-      if instance > self.latest_executed_command:
+      if instance > self.latest_executed_command+1:
         #TODO(kanitw): send leader PLEASE_UPDATE_ME
         return
         #FUTUREWORK should we handle multiple instances at the same time?
@@ -430,6 +438,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.check_timestamp()
 
   def check_timestamp(self):
+    if self.node_id == self.current_leader_id:
+      return # leader shouldn't ping itself
+
     if (datetime.now() - self.leader_last_seen).total_seconds() > MAX_TIMEOUT:
       if self.pinging_leader: #we have pinged before!!!!
         pass
