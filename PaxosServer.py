@@ -301,6 +301,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       return
     # this simulates message loss with probability of send_fail_rate
     if random.random() < self.send_fail_rate:
+      self.log("!!!Message receive FAILed!!!")
       return
     client_id = msg.get("client_id")  # id of message sender if it's a message from a client
     server_id = msg.get("server_id")  # id of message sender if it's a message from a server
