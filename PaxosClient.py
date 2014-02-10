@@ -13,6 +13,7 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     command_id = 0
     daemon_threads = True
     allow_reuse_address = True
+    executed_commands = set()
 
     def __init__(self, server_address, RequestHandlerClass, setting):
         SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
@@ -79,6 +80,10 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def handle_message(self, msg):
 
         if msg['type'] == EXECUTED:
+            if msg['client_command_id'] in self.executed_commands:
+                return
+            else:
+                self.executed_commands.add(msg['client_command_id'])
             cmdStr = self.command_list[msg['client_command_id']]
             cmd = cmdStr.split('_')
             if cmd[0] == 'lock':
