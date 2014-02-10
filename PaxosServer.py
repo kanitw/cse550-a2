@@ -178,6 +178,23 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   def message_handler(self, msg):
     self.log("receive msg: %s" % msg)
 
+    if "instance" in msg:
+      instance = msg["instance"]
+
+      # ignore old message
+      if instance < self.latest_executed_command:
+        return
+      # if future message arrive
+      if instance > self.latest_executed_command:
+        #TODO(kanitw): send leader PLEASE_UPDATE_ME
+        return
+        #TODO should we handle multiple instances at the same time?
+        # if we do handle multiple instances, this can be thrown away
+        # ignore future message already resolved
+        #if instance in self.chosen_commands and self.chosen_commands[instance] != None:
+        #  return
+
+
     ### messages for PROPOSER
     if msg["type"] == CLIENT_REQUEST:
       # CLIENT_REQUEST(client_id, client_command_id, command)
@@ -257,7 +274,6 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     if msg["type"] == ACCEPT_REQUEST:
       # ACCEPT_REQUEST(sender/proposer, n_tuple, v)
-      # FIXME(kanitw): ignore old instance
       self.leader_last_seen = datetime.now()
       if self.compare_n_tuples(msg["n_tuple"], self.get_n_tuple()) > 0:
         self.send_to_server(msg["sender"], ACCEPT, {
@@ -272,7 +288,6 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     ### messages for DISTINGUISHED_LEARNERS
     if msg["type"]==ACCEPT:
-      # FIXME(kanitw): ignore old instance
       #comes with (instance, client_id, client_command_id, n,v)
       self.inc_count(self.acceptance_count, self.n)
       if self.acceptance_count[self.n] + 1 == self.nodes_count/2 + 1:
@@ -297,6 +312,12 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       self.send_to_server(msg["sender"], IM_AWAKE) #TODO do we need any param?
 
     if msg["type"] == PLEASE_UPDATE_ME:
+      # we only send PLEASE_UPDATE_ME to the leader
+      if self.node_id == self.current_leader_id:
+        pass
+        #
+        # TODO(kanitw): think about what if the leader doesn't know
+      else:
       pass
 
     self.check_timestamp()
@@ -304,3 +325,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   def check_timestamp():
     pass
     #FIXME(kanitw):
+    #if(datetime.now() - self.leader_last_seen < MAX_TIMEOUT){
+    #    send ARE_YOU_ALIVE message to the current leader
+    #    if timeout:
+    #      #TODO elect leader
+    #}
+
