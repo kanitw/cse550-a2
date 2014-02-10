@@ -34,8 +34,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
   def handle_timeout(self):
-    #FIXME handle timeout
-    print 'Timeout!'
+    self.check_timestamp()
+    # print 'Timeout!'
 
   def send_to_server(self, server_id, msg_type, params):
     msg = params.copy()
@@ -59,8 +59,10 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     print "Server %s: %s" % (self.server_id, log)
 
   def in_proposal_queue(self, msg):
-    #FIXME check if (msg.client_id, msg.client_command_id0 are in queue
-    pass
+    for m in self.proposal_queue:
+      if m["client_id"] == msg["client_id"] and m["client_command_id"] == msg["client_command_id"]:
+        return True
+    return False
 
   def is_executed(self, client_id, client_command_id):
     if client_id in self.client_last_executed_command:
@@ -275,7 +277,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     if msg["type"] == PREPARE_REQUEST:
       # PREPARE_REQUEST (n_tuple, v):
       self.leader_last_seen = datetime.now()
-      # TODO is there a case that leader is not the sender
+      # TODO is there a case that leader is not the sender?
 
       if PaxosServer.compare_n_tuples(msg["n_tuple"], [self.n, self.n_proposer]) >= 0:
         self.n = msg["n"]
