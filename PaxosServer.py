@@ -244,7 +244,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
           })
         self.log("--------- %s gets %s ----------"%(new_client_id, var))
       else:
-        self.lock_queues.pop(var, None) #just remove the lock
+        self.lock_owners.pop(var, None) #just remove the lock
 
   def handle_execute_msg(self, params):
     # params include (instance, n, v(client_id, client_command_id, command))
