@@ -249,16 +249,14 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     # Note: Acceptor must remember its highest promise for each command instance.
 
     if msg["type"] == PREPARE_REQUEST:
-      # PREPARE_REQUEST(proposer_id, n_tuple, v):
+      # PREPARE_REQUEST (n_tuple, v):
       self.leader_last_seen = datetime.now()
       # TODO is there a case that leader is not the sender
 
-      if compare_n_tuples(msg["n_tuple"], )
-
-      if compare_n(msg["n"], self.s["n"], msg["sender"], self.s["n_proposer"]) >= 0:
-        self.s["n"] = msg["n"]
-        self.s["n_proposer"] = msg["sender"]
-        save_s()
+      if PaxosServer.compare_n_tuples(msg["n_tuple"], [self.n, self.n_proposer]) >= 0:
+        self.n = msg["n"]
+        self.n_proposer = msg["sender"]
+        self.save_s()
 
         self.send_to_server(msg["sender"], PREPARE_AGREE, {
           "n": msg["n"],
