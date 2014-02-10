@@ -3,8 +3,6 @@ import SocketServer
 from message import *
 from datetime import datetime
 
-
-
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   timeout = 5
 
@@ -24,13 +22,14 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     # Persistent objects
     self.n = 0
     self.chosen_commands = []
-    self.client_executed_command_map = {}
+    self.client_last_executed_command = {}
     self.latest_executed_command = -1
     self.n_proposer = -1
     self.load_s()
+    self.lock_owners = {}
+    self.lock_queues = {}
 
     server_address = ("localhost", 9000+node_id)
-
 
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
@@ -64,12 +63,10 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     pass
 
   def is_executed(self, client_id, client_command_id):
-    if client_id in self.client_executed_command_map:
-      if client_command_id <= self.client_executed_command_map[client_id]:
+    if client_id in self.client_last_executed_command:
+      if client_command_id <= self.client_last_executed_command[client_id]:
         return True
     return False
-
-    #FIXME check the map
 
   # send message to all nodes except itself
   def broadcast(self, msg_type, params):
@@ -83,13 +80,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.broadcast(PREPARE_REQUEST,{
       "n_tuple": self.get_n_tuple(),
       "v": msg["command"]
-        })
+    })
 
   def broadcast_accept(self, n, command):
     self.broadcast(ACCEPT_REQUEST, {
-          "n": n,
+      "n": n,
       "v": command
-        })
+    })
 
   def broadcast_execute(self, params):
     self.broadcast(EXECUTE, params)
@@ -120,6 +117,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     #self.latest_executed_command = -1
     #self.n_proposer ?? ... do we really need this?
     #self.client_executed_command_map = {}
+    #self.lock_owners
+    #self.lock_queues
 
 
   def load_s(self):
@@ -128,9 +127,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   def reset_instance(self):
     self.largest_accepted_proposal_n = None
-    self.pr= 0
+    self.pr = 0
 
-  def execute(self, params):
+  def execute(self, command):
+    #command(client_id, cliend_command_id, v)
+    #FIXME add logic for locks here
+
+  def handle_execute_msg(self, params):
     # params include (instance, client_id, client_command_id, n, v)
 
     instance = params["instance"]
@@ -144,36 +147,35 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       self.chosen_commands.push(None) #push empty slot just in case
 
     if instance == self.latest_executed_command + 1:
-      #execute it right away
+      # the next command to execute, do it right away
       if instance == len(self.chosen_commands):
         self.chosen_commands.push(command)
       else:
         self.chosen_commands[instance] = command
+
+      i = instance
+      while i < len(self.chosen_commands) and self.chosen_command[i] != None:
+        self.execute(self.chosen_commands[i])
+        client_id = command["client_id"]
+        client_command_id = command["client_command_id"]
+        self.client_last_executed_command[client_id] = client_command_id
+        self.save_s()
+        i+=1
+
+      self.reset_instance() # FIXME(kanitw): should this be in the while loop?
+      if self.node_id == self.current_leader_id:
+        self.proposal_queue.pop(0) # remove latest proposed
+        # start proposing next one - broadcast_prepare method will take care of this
+        self.broadcast_prepare()
+
     elif instance > self.latest_executed_command + 1:
       # newer command ... maybe old instance command is missing
-
-
-
-      # FIXME: ask
-
+      # FIXME: ask the leader to fixme
       # TODO: special case if the leader ask someone else
+      pass
 
-
-    save_state()
-    if instance == latest_instance + 1
-      i = instance
-      while chosen_command[i] != None:
-      execute(client_id, v)
-      client_latest_executed[client_id] = client_command_id
-      latest_instance = i
-      i++
-
-
-
-    #assume we propose one instance at a time
-    self.reset_instance()
-    if node_id == current_leader_id:
-      propose_next_instance()
+    else:
+      pass # ignore old instance
 
   def message_handler(self, msg):
     self.log("receive msg: %s" % msg)
@@ -196,15 +198,17 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
     ### messages for PROPOSER
+
     if msg["type"] == CLIENT_REQUEST:
       # CLIENT_REQUEST(client_id, client_command_id, command)
-
+      client_id = msg["client_id"]
+      client_command_id = msg["client_command_id"]
       if self.node_id != self.current_leader_id:
-        self.send_to_client(msg["client_id"], PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
+        self.send_to_client(client_id, PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
       elif self.in_proposal_queue(msg):
         pass  # ignore
-      elif self.is_executed(msg["client_id"], msg["client_command_id"]):
-        self.send_to_client(msg["client_id"], EXECUTED, {"client_command_id": msg["client_command_id"]})
+      elif self.is_executed(client_id, client_command_id):
+        self.send_to_client(client_id, EXECUTED, {"client_command_id": client_command_id})
       else:
         self.proposal_queue.append(msg)
         if len(self.proposal_queue) == 1:  # so it was empty before
@@ -213,6 +217,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     if msg["type"] == PREPARE_AGREE:
       # PREPARE_AGREE(instance, n, largest_accepted_proposal_n, largest_accepted_proposal_cmd)
+
       # FIXME(kanitw): use compare
       if msg["largest_accepted_proposal_n"] is not None and \
                       msg["largest_accepted_proposal_n"] > self.largest_accepted_proposal_n:
@@ -281,12 +286,14 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.largest_accepted_proposal_cmd = msg["v"]
       else:
         pass
-        #TODO(kanitw): Maybe it's nice to notify proposer in this case?
+        #NICETODO: Maybe it's nice to notify proposer in this case?
 
 
     ### messages for DISTINGUISHED_LEARNERS
     if msg["type"]==ACCEPT:
       #comes with (instance, client_id, client_command_id, n,v)
+      client_command_id = msg["client_command_id"]
+
       self.inc_count(self.acceptance_count, self.n)
       if self.acceptance_count[self.n] + 1 == self.nodes_count/2 + 1:
         # 1=itself!
@@ -296,15 +303,16 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         params["instance"] = self.latest_executed_command + 1
 
         self.broadcast_execute(params)
-        self.execute(params)
+        self.handle_execute_msg(params)
         self.send_to_client(msg["client_id"], EXECUTED, {
-          "client_command_id": msg["client_command_id"]
+          "client_command_id": client_command_id
         })
+
 
     ### messages for LEARNERS
     if msg["type"] == EXECUTE:
       # just run execute method (so it behaves similar to the d-learner.
-      self.execute(msg)
+      self.handle_execute_msg(msg)
 
     if msg["type"] == ARE_YOU_AWAKE:
       self.send_to_server(msg["sender"], IM_AWAKE) #TODO do we need any param?
@@ -313,10 +321,10 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       # we only send PLEASE_UPDATE_ME to the leader
       if self.node_id == self.current_leader_id:
         pass
-        #
+        # FIXME(kanitw): send data back
         # TODO(kanitw): think about what if the leader doesn't know
       else:
-      pass
+        pass
 
     self.check_timestamp()
 
