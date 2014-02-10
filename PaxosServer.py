@@ -130,8 +130,27 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.pr = 0
 
   def execute(self, command):
-    #command(client_id, cliend_command_id, v)
-    #FIXME add logic for locks here
+    #command(client_id, client_command_id, v)
+    (action, var) = command["v"].split("_")
+    client_id = command["client_id"]
+    client_command_id = command["client_command_id"]
+
+    if action == "lock":
+      if not var in self.lock_owners:
+        self.lock_owners[var] = client_id
+      elif self.lock_owners[var] != client_id:
+        # there is an owner and the requested client is not the owner
+        self.lock_queues.setdefault(var, []).push((client_id, client_command_id))
+    elif action == "unlock":
+      if len(self.lock_queues.setdefault(var, [])) > 0:
+        # assign the lock to the new owner and send executed to him
+        (new_client_id, new_client_command_id) = self.lock_queues[var].pop(0)
+        self.lock_owners[var] = new_client_id
+        self.send_to_client(new_client_id, EXECUTED, {
+          "client_command_id": new_client_command_id
+        })
+      else:
+        self.lock_queues.pop(var, None) #just remove the lock
 
   def handle_execute_msg(self, params):
     # params include (instance, client_id, client_command_id, n, v)
