@@ -40,7 +40,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   def send_to_server(self, server_id, msg_type, params):
     msg = params.copy()
     params["type"] = msg_type
-    params["sender"] = self.node_id
+    params["server_id"] = self.node_id
 
     self.log("send_to_server %s: %s" % (server_id, msg))
     # FIXME(kanitw): Shih-wen please finish this method
@@ -49,7 +49,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   def send_to_client(self, client_id, msg_type, params):
     msg = params.copy()
     params["type"] = msg_type
-    params["sender"] = self.node_id
+    params["server_id"] = self.node_id
 
     self.log("send_to_client %s: %s" % (client_id, msg))
     # FIXME(kanitw): Shih-wen please finish this method
@@ -201,6 +201,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   def message_handler(self, msg):
     self.log("receive msg: %s" % msg)
 
+    client_id = msg.get("client_id")  # id of message sender if it's a message from a client
+    server_id = msg.get("server_id")  # id of message sender if it's a message from a server
+
     if "instance" in msg:
       instance = msg["instance"]
 
@@ -222,7 +225,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     if msg["type"] == CLIENT_REQUEST:
       # CLIENT_REQUEST(client_id, client_command_id, command)
-      client_id = msg["client_id"]
+
       client_command_id = msg["client_command_id"]
       if self.node_id != self.current_leader_id:
         self.send_to_client(client_id, PLEASE_ASK_LEADER, {"current_leader_id": self.current_leader_id})
@@ -281,28 +284,32 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
       if PaxosServer.compare_n_tuples(msg["n_tuple"], [self.n, self.n_proposer]) >= 0:
         self.n = msg["n"]
-        self.n_proposer = msg["sender"]
+        self.n_proposer = server_id
         self.save_s()
 
-        self.send_to_server(msg["sender"], PREPARE_AGREE, {
+        self.send_to_server(server_id, PREPARE_AGREE, {
           "n": msg["n"],
           "largest_accepted_proposal_n": self.largest_accepted_proposal_n,
           "largest_accepted_proposal_cmd": self.largest_accepted_proposal_cmd
         })
       else:
-        self.send_to_server(msg["sender"], PREPARE_REJECT, {
+        self.send_to_server(server_id, PREPARE_REJECT, {
           "n": msg["n"],
           "my_n": None #FIXME check....
         })
 
 
     if msg["type"] == ACCEPT_REQUEST:
-      # ACCEPT_REQUEST(sender/proposer, n_tuple, v)
+      # ACCEPT_REQUEST(server_id, n, v)
       self.leader_last_seen = datetime.now()
-      if self.compare_n_tuples(msg["n_tuple"], self.get_n_tuple()) > 0:
-        self.send_to_server(msg["sender"], ACCEPT, {
-          "n_tuple": msg["n_tuple"] #FIXME(kanitw) add parameter required by accept below
+      if self.compare_n_tuples([msg["n"], server_id], self.get_n_tuple()) > 0:
+        self.send_to_server(server_id, ACCEPT, {
+          "client_id": msg["client_id"],
+          "client_command": msg["client_command"],
+          "n": msg["n_tuple"][0],
+          "v": msg["v"]
         })
+        # FIXME fix largest_accepted_proposal
         self.largest_accepted_proposal_n = msg["n_tuple"][0]
         self.largest_accepted_proposal_cmd = msg["v"]
       else:
@@ -336,7 +343,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       self.handle_execute_msg(msg)
 
     if msg["type"] == ARE_YOU_AWAKE:
-      self.send_to_server(msg["sender"], IM_AWAKE) #TODO do we need any param?
+      self.send_to_server(server_id, IM_AWAKE) #TODO do we need any param?
 
     if msg["type"] == PLEASE_UPDATE_ME:
       # we only send PLEASE_UPDATE_ME to the leader
