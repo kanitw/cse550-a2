@@ -43,7 +43,7 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
             sock.close()
 
     def execute_command(self):
-        if self.command_id > len(self.command_list):
+        if self.command_id >= len(self.command_list):
             return #do nothing
 
         cmdStr = self.command_list[self.command_id]
