@@ -9,6 +9,10 @@ import time
 
 MAX_TIMEOUT = 60 # in seconds
 
+LEADER_STATUS_OK = "LEADER_STATUS_OK"
+LEADER_STATUS_PINGING = "LEADER_STATUS_PINGING"
+LEADER_STATUS_DISAPPEAR = "LEADER_STATUS_DISAPPEAR"
+
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   timeout = 90
 
@@ -25,12 +29,15 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.proposal_queue = []
     self.current_leader_id = 1 # 1 by default
     self.leader_last_seen = datetime.now()
-    self.pinging_leader = False
+    self.leader_last_ping = datetime.now()
+    self.leader_status = LEADER_STATUS_OK
+    self.leader_candidate = None
 
     # instance based object -- should be clean every new instnace round
     self.largest_accepted_proposal = None
     self.promise_count = {}
     self.acceptance_count = {}
+    self.promote_count = 0
 
     # Persistent objects
     self.n = 0
@@ -390,7 +397,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         #NICETODO: Maybe it's nice to notify proposer in this case?
 
     ### messages for DISTINGUISHED_LEARNERS
-    if msg["type"]==ACCEPT:
+    if msg["type"] == ACCEPT:
       #ACCEPT(instance, n, v(client_id, client_command_id, command))
       client_id = msg["v"]["client_id"]
       client_command_id = msg["v"]["client_command_id"]
@@ -418,15 +425,21 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       # just run execute method (so it behaves similar to the d-learner.
       self.handle_execute_msg(msg)
 
-    if msg["type"] == CAN_YOU_LEAD:
-      pass
+    if msg["type"] == WHO_IS_LEADER:
+      if self.leader_status in [LEADER_STATUS_OK, LEADER_STATUS_PINGING]:
+        self.send_to_server(server_id, LEADER_IS, {
+            "leader_id": self.current_leader_id
+          })
+      elif self.leader_status == LEADER_STATUS_DISAPPEAR:
+        self.promote_count += 1
+        if self.promote_count == self.nodes_count / 2 + 1:
+          self.current_leader_id = self.node_id
+          self.broadcast(LEADER_IS, {
+            "leader_id": self.current_leader_id
+          })
 
     if msg["type"] == ARE_YOU_AWAKE:
       self.send_to_server(server_id, IM_AWAKE)
-
-    if msg["type"] == IM_AWAKE:
-      self.leader_last_seen = datetime.now()
-      self.pinging_leader = False
 
     if msg["type"] == PLEASE_UPDATE_ME:
       # we only send PLEASE_UPDATE_ME to the leader
@@ -439,21 +452,67 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       else:
         pass
 
-    self.check_timestamp()
+    # LEADER_IS and IM_AWAKE update leader_status so it doesn't need to call check_timestamp() afterward
+
+    if msg["type"] == LEADER_IS:
+      new_leader_id = msg["leader_id"]
+      if new_leader_id == self.current_leader_id:
+        self.leader_candidate = None # so it will ask the same person
+        self.ping_leader()
+      else:
+        # listen to the new leader
+        self.current_leader_id = new_leader_id
+        self.leader_last_seen = datetime.now()
+        self.set_leader_status_ok()
+
+    elif msg["type"] == IM_AWAKE:
+      if msg["server_id"] == self.current_leader_id:
+        self.leader_last_seen = datetime.now()
+        self.set_leader_status_ok()
+      else:
+        pass #ignore because it is too late, we have already swap to another candidate
+
+    else:
+      self.check_timestamp()
+
+  def ping_leader(self):
+    self.leader_status == LEADER_STATUS_PINGING
+    self.send_to_server(self.current_leader_id, ARE_YOU_AWAKE)
+    self.leader_last_ping = datetime.now()
+
+  def set_leader_status_ok(self):
+    self.leader_status = LEADER_STATUS_OK
+    self.leader_candidate = None
+    self.promote_count = 0
+
+  def ask_next_leader_candidate(self):
+    self.leader_status = LEADER_STATUS_DISAPPEAR
+    self.leader_candidate = (self.leader_candidate or self.current_leader_id) + 1
+    self.send_to_server(self.leader_candidate, WHO_IS_LEADER)
+    self.candidate_last_ask = datetime.now()
 
   def check_timestamp(self):
     if self.node_id == self.current_leader_id:
       return # leader shouldn't ping itself
 
-    if (datetime.now() - self.leader_last_seen).total_seconds() > MAX_TIMEOUT:
-      if self.pinging_leader: #we have pinged before!!!!
-        #FIXME
-        pass
-      else:
-        self.send_to_server(self.current_leader_id, ARE_YOU_AWAKE)
-        self.pinging_leader = True
-    else:
-      self.pinging_leader = False
+    if self.leader_status == LEADER_STATUS_OK:
+      if (datetime.now() - self.leader_last_seen).total_seconds() > MAX_TIMEOUT:
+        self.ping_leader()
+
+    elif self.leader_status == LEADER_STATUS_PINGING:
+      if (datetime.now() - self.leader_last_seen).total_seconds() <= MAX_TIMEOUT:
+        self.set_leader_status_ok()
+
+      if (datetime.now() - self.leader_last_ping).total_seconds() > MAX_TIMEOUT:
+        self.ask_next_leader_candidate()
+
+    elif self.leader_status == LEADER_STATUS_DISAPPEAR: #we have pinged before!!!!
+      if (datetime.now() - self.leader_last_seen).total_seconds() <= MAX_TIMEOUT:
+        self.set_leader_status_ok()
+      if (datetime.now() - self.candidate_last_ask).total_seconds() > MAX_TIMEOUT:
+        self.ask_next_leader_candidate()
+
+
 
 class MsgHandler(SocketServer.BaseRequestHandler):
 
