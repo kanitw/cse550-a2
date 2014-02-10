@@ -84,7 +84,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       sock.close()
 
   def log(self, log):
-    print "Server %s[%s]: %s" % (self.node_id, str(self.latest_executed_command), log)
+    print "Server %s%s[%s]: %s" % (self.node_id, "*" if self.node_id==self.current_leader_id else " " \
+      , str(self.latest_executed_command), log)
 
   def in_proposal_queue(self, msg):
     for m in self.proposal_queue:
@@ -147,7 +148,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   ## compare tuple of n  (n, node_id)
 
   def compare_n_tuples(self, nt1, nt2):
-    self.log("compare_n_tuples %s - %s" % (nt1, nt2))
+    # self.log("compare_n_tuples %s - %s" % (nt1, nt2))
     if nt1[0]-nt2[0] == 0:
       return nt1[1] - nt2[1]
     return nt1[0]-nt2[0]
@@ -212,7 +213,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     instance = params["instance"]
     v = params["v"]
 
-    self.log(">>>>>> handle_execute_msg i=%s [last=%s] %s"%(instance, self.latest_executed_command, params))
+    # self.log(">>>>>> handle_execute_msg i=%s [last=%s] %s"%(instance, self.latest_executed_command, params))
 
     if instance == self.latest_executed_command + 1:
       # the next command to execute, do it right away
@@ -224,11 +225,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       i = instance
       while i < len(self.chosen_commands) and self.chosen_commands[i] != None:
         v_to_exec = self.chosen_commands[i]
+        self.latest_executed_command = i
         self.execute(v_to_exec)
         client_id = v_to_exec["client_id"]
         client_command_id = v_to_exec["client_command_id"]
         self.client_last_executed_command[client_id] = client_command_id
-        self.latest_executed_command = i
         self.save_state()
         i+=1
 
@@ -251,7 +252,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       pass # ignore old instance
 
   def message_handler(self, msg):
-    self.log("receive msg: %s" % msg)
+    # self.log("receive msg: %s" % msg)
 
     client_id = msg.get("client_id")  # id of message sender if it's a message from a client
     server_id = msg.get("server_id")  # id of message sender if it's a message from a server
@@ -260,10 +261,10 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       instance = msg["instance"]
 
       # ignore old message
-      if instance < self.latest_executed_command:
+      if instance <= self.latest_executed_command:
         return
       # if future message arrive
-      if instance > self.latest_executed_command:
+      if instance > self.latest_executed_command+1:
         #TODO(kanitw): send leader PLEASE_UPDATE_ME
         return
         #FUTUREWORK should we handle multiple instances at the same time?
