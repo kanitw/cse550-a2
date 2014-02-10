@@ -5,16 +5,16 @@ import socket
 from datetime import datetime
 import json
 import random
-import time
 
-MAX_TIMEOUT = 60 # in seconds
+
+MAX_TIMEOUT = 5 # in seconds
 
 LEADER_STATUS_OK = "LEADER_STATUS_OK"
 LEADER_STATUS_PINGING = "LEADER_STATUS_PINGING"
 LEADER_STATUS_DISAPPEAR = "LEADER_STATUS_DISAPPEAR"
 
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-  timeout = 90
+  timeout = 3
 
   daemon_threads = True
   allow_reuse_address = True
@@ -25,7 +25,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.nodes_count = int(nodes_count)
     self.send_fail_rate = float(send_fail_rate)
     self.alive_time = float(alive_time)
-    self.start_time = time.time()
+    self.start_time = datetime.now()
     self.proposal_queue = []
     self.current_leader_id = 1 # 1 by default
     self.leader_last_seen = datetime.now()
@@ -48,6 +48,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.load_state()
     self.lock_owners = {}
     self.lock_queues = {}
+    self.dead_msg_count = 0
+    self.is_alive = True
 
 
     server_address = ("localhost", 9000+node_id)
@@ -56,13 +58,17 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
   def check_alive(self):
-    if self.alive_time < 0.1 or time.time() > self.start_time + self.alive_time:
+    if not self.is_alive:
+      return False
+    if self.alive_time < 0.1 or (datetime.now()-self.start_time).total_seconds() < self.alive_time:
       return True
     else:
+      self.is_alive = False
       return False
 
   def handle_timeout(self):
-    self.check_timestamp()
+    if self.check_alive():
+      self.check_timestamp()
     # self.log("Timeout!")
 
   def send_to_server(self, target_server_id, msg_type, params={}, log=True):
@@ -288,7 +294,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     # self.log("receive msg: %s" % msg)
     # this function checks if the node is still alive
     if not self.check_alive():
-      self.log("##### I'M DEAD #####")
+      self.dead_msg_count += 1
+      if self.dead_msg_count % 10 == 0:
+        self.log("##### I'M DEAD #%s %s #####" % (self.dead_msg_count, (datetime.now()-self.start_time).total_seconds()))
       return
     # this simulates message loss with probability of send_fail_rate
     if random.random() < self.send_fail_rate:
@@ -324,6 +332,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       elif self.in_proposal_queue(msg):
         pass  # ignore
       elif self.is_executed(client_id, client_command_id):
+        self.log("Already executed ... sending %s back to %s" % (client_command_id, client_id))
         self.send_to_client(client_id, EXECUTED, {"client_command_id": client_command_id})
       else:
         self.proposal_queue.append(msg)
@@ -488,7 +497,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       self.check_timestamp()
 
   def ping_leader(self):
-    self.leader_status == LEADER_STATUS_PINGING
+    self.leader_status = LEADER_STATUS_PINGING
+    # self.log("LEADER_STATUS_PINGING")
     self.send_to_server(self.current_leader_id, ARE_YOU_AWAKE)
     self.leader_last_ping = datetime.now()
 
@@ -499,7 +509,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   def ask_next_leader_candidate(self):
     self.leader_status = LEADER_STATUS_DISAPPEAR
-    self.leader_candidate = (self.leader_candidate or self.current_leader_id) + 1
+    self.log("LEADER_STATUS_DISAPPEAR")
+    self.leader_candidate = ((self.leader_candidate or self.current_leader_id) + 1) % self.nodes_count
     self.send_to_server(self.leader_candidate, WHO_IS_LEADER)
     self.candidate_last_ask = datetime.now()
 
@@ -507,16 +518,23 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     if self.node_id == self.current_leader_id:
       return # leader shouldn't ping itself
 
+    # self.log("check_timestamp %s" % self.leader_status)
+
     if self.leader_status == LEADER_STATUS_OK:
       if (datetime.now() - self.leader_last_seen).total_seconds() > MAX_TIMEOUT:
         self.ping_leader()
+      # else:
+      #   self.log("Leader ok for %s sec" % (datetime.now() - self.leader_last_seen).total_seconds())
 
     elif self.leader_status == LEADER_STATUS_PINGING:
       if (datetime.now() - self.leader_last_seen).total_seconds() <= MAX_TIMEOUT:
         self.set_leader_status_ok()
 
       if (datetime.now() - self.leader_last_ping).total_seconds() > MAX_TIMEOUT:
+        # self.log("PINGING TIMEOUT!!!!!")
         self.ask_next_leader_candidate()
+      # else:
+      #   self.log("pinging ok for %s sec" % (datetime.now() - self.leader_last_ping).total_seconds())
 
     elif self.leader_status == LEADER_STATUS_DISAPPEAR: #we have pinged before!!!!
       if (datetime.now() - self.leader_last_seen).total_seconds() <= MAX_TIMEOUT:

@@ -9,7 +9,7 @@ pkill -f PaxosServer
 sleep 2
 
 python PaxosServer.py 1 5 0 2 &
-python PaxosServer.py 1 5 0 3 &
+python PaxosServer.py 2 5 0 3 &
 
 
 for i in {3..5}
