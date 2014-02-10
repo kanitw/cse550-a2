@@ -8,9 +8,11 @@ pkill -f PaxosServer
 # sleep to make sure that they are dead!
 sleep 2
 
-python PaxosServer.py 1 5 0 2 &
+python PaxosServer.py 1 5 0 0 &
+python PaxosServer.py 2 5 0 2 &
+python PaxosServer.py 3 5 0 3 &
 
-for i in {2..5}
+for i in {4..5}
 do
   python PaxosServer.py $i 5 0 0 &
 done
