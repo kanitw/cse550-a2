@@ -401,12 +401,15 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       # just run execute method (so it behaves similar to the d-learner.
       self.handle_execute_msg(msg)
 
+    if msg["type"] == CAN_YOU_LEAD:
+      pass
+
     if msg["type"] == ARE_YOU_AWAKE:
       self.send_to_server(server_id, IM_AWAKE)
 
     if msg["type"] == IM_AWAKE:
       self.leader_last_seen = datetime.now()
-      pinging_leader = False
+      self.pinging_leader = False
 
     if msg["type"] == PLEASE_UPDATE_ME:
       # we only send PLEASE_UPDATE_ME to the leader
@@ -415,7 +418,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.log("OKAY WE NEED PLEASE_UPDATE_ME!!!")
         # TODO(kanitw): do we really need this case
         # if yes, send data back
-        # and think about what if the leader doesn't know
+        # FUTUREWORK think about what if the leader doesn't know
       else:
         pass
 
@@ -427,9 +430,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     if (datetime.now() - self.leader_last_seen).total_seconds() > MAX_TIMEOUT:
       if self.pinging_leader: #we have pinged before!!!!
+        #FIXME
         pass
       else:
         self.send_to_server(self.current_leader_id, ARE_YOU_AWAKE)
+        self.pinging_leader = True
     else:
       self.pinging_leader = False
 
