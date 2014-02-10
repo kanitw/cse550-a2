@@ -49,7 +49,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
   def check_alive(self):
-    if self.alive_time > 0.1 and time.time() > self.start_time + self.alive_time:
+    if self.alive_time < 0.1 or time.time() > self.start_time + self.alive_time:
       return True
     else:
       return False
@@ -266,6 +266,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     # self.log("receive msg: %s" % msg)
     # this function checks if the node is still alive
     if not self.check_alive():
+      self.log("##### I'M DEAD #####")
       return
     # this simulates message loss with probability of send_fail_rate
     if random.random() < self.send_fail_rate:
@@ -459,9 +460,11 @@ class MsgHandler(SocketServer.BaseRequestHandler):
 
 def initialize_server():
   server_setting = {}
-  server_id = int(sys.argv[1])
-  nodes_count = int(sys.argv[2])
-  return PaxosServer(('localhost', 8000 + server_id), MsgHandler, server_id, nodes_count)
+  node_id = int(sys.argv[1])
+  nodes_count = sys.argv[2]
+  send_fail_rate = sys.argv[3]
+  alive_time = sys.argv[4]
+  return PaxosServer(('localhost', 8000 + node_id), MsgHandler, node_id, nodes_count, send_fail_rate, alive_time)
 
 def running(server):
   try:
@@ -473,7 +476,7 @@ def running(server):
 
 if __name__ == "__main__":
   if len(sys.argv) != 5:
-    print "usage: PaxosServer.py server_id nodes_count send_fail_rate alive_time"
+    print "usage: PaxosServer.py node_id nodes_count send_fail_rate alive_time"
     sys.exit(0)
   server = initialize_server()
   running(server)
