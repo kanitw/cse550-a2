@@ -1,17 +1,20 @@
 import sys
 import SocketServer
 from message import *
+import socket
 from datetime import datetime
+import json
 
 MAX_TIMEOUT = 60 # in seconds
 
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-  timeout = 5
+  timeout = 30
 
   daemon_threads = True
   allow_reuse_address = True
 
-  def __init__(self, node_id, nodes_count, RequestHandlerClass):
+  def __init__(self, server_address, RequestHandlerClass, node_id, nodes_count):
+    SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
     self.node_id = int(node_id)
     self.nodes_count = nodes_count
     self.proposal_queue = []
@@ -20,12 +23,12 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.pinging_leader = False
 
     # instance based object -- should be clean every new instnace round
-    self.largest_accepted_proposal = (-1, None)
+    self.largest_accepted_proposal = None
     self.promise_count = {}
     self.acceptance_count = {}
 
     # Persistent objects
-    self.n = 0
+    self.n = -1
     self.n_proposer = -1 # who make this server promise current n
     self.latest_executed_command = -1
     self.chosen_commands = []
@@ -41,28 +44,45 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   def handle_timeout(self):
     self.check_timestamp()
-    # print 'Timeout!'
+    self.log("Timeout!")
 
-  def send_to_server(self, server_id, msg_type, params):
-    msg = params.copy()
+  def send_to_server(self, target_server_id, msg_type, params):
+
     params["type"] = msg_type
     params["server_id"] = self.node_id
+    msg = params.copy()
+    msgStr = json.dumps(msg)
+    self.log("send_to_server %s: %s" % (str(target_server_id), msgStr))
+    HOST, PORT = "localhost", 9000 + target_server_id
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    self.log("send_to_server %s: %s" % (server_id, msg))
-    # FIXME(kanitw): Shih-wen please finish this method
-    pass
+    try:
+      # Connect to server and send data
+      sock.connect((HOST, PORT))
+      sock.sendall(msgStr + "\n")
+    finally:
+      sock.close()
 
   def send_to_client(self, client_id, msg_type, params):
-    msg = params.copy()
+
     params["type"] = msg_type
     params["server_id"] = self.node_id
+    msg = params.copy()
+    msgStr = json.dumps(msg)
 
-    self.log("send_to_client %s: %s" % (client_id, msg))
-    # FIXME(kanitw): Shih-wen please finish this method
-    pass
+    self.log("send_to_client %s: %s" % (str(client_id), msgStr))
+    HOST, PORT = "localhost", 8000 + client_id
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    try:
+      # Connect to server and send data
+      sock.connect((HOST, PORT))
+      sock.sendall(msgStr + "\n")
+    finally:
+      sock.close()
 
   def log(self, log):
-    print "Server %s: %s" % (self.server_id, log)
+    print "Server %s: %s" % (self.node_id, log)
 
   def in_proposal_queue(self, msg):
     for m in self.proposal_queue:
@@ -78,7 +98,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
   # send message to all nodes except itself
   def broadcast(self, msg_type, params):
-    for node in range(self.nodes_count):
+    for node in range(1,self.nodes_count+1):
       if node != self.node_id:
         # for all nodes other than this one!
         self.send_to_server(node, msg_type, params)
@@ -122,8 +142,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     return [msg["n"], msg["server_id"]]
 
   ## compare tuple of n  (n, node_id)
-  @staticmethod
-  def compare_n_tuples(nt1, nt2):
+  
+  def compare_n_tuples(self, nt1, nt2):
+    self.log("compare_n_tuples %s - %s" % (nt1, nt2))
     if nt1[0]-nt2[0] == 0:
       return nt1[1] - nt2[1]
     return nt1[0]-nt2[0]
@@ -149,11 +170,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
   def reset_instance(self):
-    self.largest_accepted_proposal = (-1, None)
+    self.largest_accepted_proposal = None
     self.promise_count = {}
     self.acceptance_count = {}
     self.n_proposer = -1
-    self.n = 0
+    self.n = -1
 
   def execute(self, v):
     #v(client_id, client_command_id, command)
@@ -221,7 +242,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       pass # ignore old instance
 
   def message_handler(self, msg):
-    self.log("receive msg: %s" % msg)
+    #self.log("receive msg: %s" % msg)
 
     client_id = msg.get("client_id")  # id of message sender if it's a message from a client
     server_id = msg.get("server_id")  # id of message sender if it's a message from a server
@@ -309,7 +330,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
       # FUTUREWORK - is there a case that leader is not the sender?
 
-      if PaxosServer.compare_n_tuples(self.get_msg_n_tuple(msg), [self.n, self.n_proposer]) >= 0:
+      if self.compare_n_tuples(self.get_msg_n_tuple(msg), [self.n, self.n_proposer]) >= 0:
         self.n = msg["n"]
         self.n_proposer = server_id
         self.save_state()
@@ -329,7 +350,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       # ACCEPT_REQUEST(instance, server_id, n, v(client_id, client_command_id, command))
       self.leader_last_seen = datetime.now()
 
-      if PaxosServer.compare_n_tuples(self.get_msg_n_tuple(msg), self.get_n_tuple()) >= 0:
+      if self.compare_n_tuples(self.get_msg_n_tuple(msg), self.get_n_tuple()) >= 0:
         self.send_to_server(server_id, ACCEPT, {
           "n": msg["n"],
           "v": msg["v"]
@@ -337,7 +358,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.largest_accepted_proposal = (msg["n"], msg["v"])
 
       else:
-        pass
+        self.log("The proposal's n (%s) < my n (%s)" % (msg["n"], self.n))
         #NICETODO: Maybe it's nice to notify proposer in this case?
 
     ### messages for DISTINGUISHED_LEARNERS
@@ -398,3 +419,32 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     else:
       self.pinging_leader = False
 
+#TODO move this to another file
+class MsgHandler(SocketServer.BaseRequestHandler):
+
+  def handle(self):
+    msgStr = self.request.recv(1024).strip()
+    self.server.log("Receive data: %s" % msgStr)
+    msg = json.loads(msgStr)
+    self.server.message_handler(msg)
+
+def initialize_server():
+  server_setting = {}
+  server_id = int(sys.argv[1])
+  nodes_count = int(sys.argv[2])
+  return PaxosServer(('localhost', 8000 + server_id), MsgHandler, server_id, nodes_count)
+
+def running(server):
+  try:
+    while True:
+      server.handle_request()
+  except KeyboardInterrupt:
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+  if len(sys.argv) != 3:
+    print "usage: PaxosServer.py server_id nodes_count"
+    sys.exit(0)
+  server = initialize_server()
+  running(server)

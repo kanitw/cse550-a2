@@ -7,7 +7,7 @@ import time
 
 class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
-    timeout = 10
+    timeout = 90
     leader = 1
     lock = set()
     command_id = 1
