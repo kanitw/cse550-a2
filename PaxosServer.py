@@ -272,7 +272,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.save_state()
         i+=1
 
-      self.reset_instance() # TODO(kanitw): should this be in the while loop?
+      self.reset_instance()
       if self.node_id == self.current_leader_id:
         self.proposal_queue.pop(0) # remove latest proposed
         if len(self.proposal_queue) > 0:
@@ -282,13 +282,14 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     elif instance > self.latest_executed_command + 1:
       while len(self.chosen_commands) < instance:
         self.chosen_commands.append(None) #push empty slot just in case
-      # newer command ... maybe old instance command is missing
-      # TODO: ask the leader PLEASE_UPDATE_ME
-      # TODO: special case if the leader ask someone else
-      pass
 
+      for i in range(self.latest_executed_command+1, instance): #from last-exec + 1 to instance -1
+        if self.chosen_commands[i] is None:
+          self.send_to_server(self.current_leader_id, PLEASE_UPDATE_ME, {
+              "instance": i
+            })
     else:
-      pass # ignore old instance
+      pass # ignore executed instance
 
   def message_handler(self, msg):
     # self.log("receive msg: %s" % msg)
@@ -306,20 +307,16 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
     if "instance" in msg:
       instance = msg["instance"]
-
-      # ignore old message
-      if instance <= self.latest_executed_command:
-        return
-      # if future message arrive
-      if instance > self.latest_executed_command+1:
-        #TODO(kanitw): send leader PLEASE_UPDATE_ME
-        return
-        #FUTUREWORK should we handle multiple instances at the same time?
-        # if we do handle multiple instances, this can be thrown away
-        # ignore future message already resolved
-        #if instance in self.chosen_commands and self.chosen_commands[instance] != None:
-        #  return
-
+      if msg["type"] != PLEASE_UPDATE_ME:
+        # ignore old message that's not PLEASE_UPDATE_ME
+        if instance <= self.latest_executed_command:
+          return
+        # if non-EXECUTE future message arrive
+        if instance > self.latest_executed_command+1 and msg["type"] != EXECUTE:
+          # since we handle one stuff at a time, if non-EXECUTE comes, just drop it.
+          return
+          # FUTUREWORK: should we handle multiple instances at the same time?
+          # if we do handle multiple instances, this can be thrown away
 
     ### messages for PROPOSER
 
@@ -343,6 +340,9 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     if msg["type"] == PREPARE_AGREE:
       # PREPARE_AGREE(instance, n, largest_accepted_proposal(n,cmd))
 
+      # TODO: if this is no longer a leader, drop the messsage
+      # TODO check PREPARE_AGREE duplication from a same node.
+
       msg_largest_accepted_proposal = msg["largest_accepted_proposal"]
 
       if msg_largest_accepted_proposal is not None:
@@ -365,6 +365,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
           self.broadcast_accept(msg["n"], self.get_v(self.proposal_queue[0]))
 
     if msg["type"] == PREPARE_REJECT:
+      # TODO: if this is no longer a leader, drop the messsage
+
       # PREPARE_REJECT(instance, n, min_n)
       # n is the rejected n, min_n is min_n that the acceptor will accept
 
@@ -379,6 +381,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         self.n = msg["min_n"] + 1
         self.broadcast_prepare()
 
+    #TODO: Include ACCEPT_REJECT
 
     ### messages for ACCEPTOR:
     # Note: Acceptor must remember its highest promise for each command instance.
@@ -387,7 +390,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
       # PREPARE_REQUEST (server_id, n):
       self.leader_last_seen = datetime.now()
 
-      # FUTUREWORK - is there a case that leader is not the sender?
+      # TODO - handle a case that leader is not the sender?
 
       if self.compare_n_tuples(self.get_msg_n_tuple(msg), [self.n, self.n_proposer]) >= 0:
         self.n = msg["n"]
@@ -418,14 +421,13 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
       else:
         self.log("The proposal's n (%s) < my n (%s)" % (msg["n"], self.n))
-        #NICETODO: Maybe it's nice to notify proposer in this case?
+        #TODO: Include ACCEPT_REJECT
 
     ### messages for DISTINGUISHED_LEARNERS
     if msg["type"] == ACCEPT:
       #ACCEPT(instance, n, v(client_id, client_command_id, command))
-      client_id = msg["v"]["client_id"]
-      client_command_id = msg["v"]["client_command_id"]
 
+      #TODO check ACCEPT duplication from a same node.
       self.inc_count(self.acceptance_count, self.n)
       if self.acceptance_count[self.n] + 1 == self.nodes_count/2 + 1:
         # 1=itself!
@@ -460,18 +462,16 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
           })
 
     if msg["type"] == ARE_YOU_AWAKE:
+      # TODO what if this node is no longer a leader
       self.send_to_server(server_id, IM_AWAKE)
 
-    if msg["type"] == PLEASE_UPDATE_ME:
+    if msg["type"] == PLEASE_UPDATE_ME :
       # we only send PLEASE_UPDATE_ME to the leader
-      if self.node_id == self.current_leader_id:
-
-        self.log("OKAY WE NEED PLEASE_UPDATE_ME!!!")
-        # TODO(kanitw): do we really need this case
-        # if yes, send data back
-        # FUTUREWORK think about what if the leader doesn't know
-      else:
-        pass
+      if instance < len(self.chosen_commands) and not (self.chosen_commands[instance] is None):
+        self.send_to_server(server_id, EXECUTE, {
+            "instance": instance,
+            "v": self.chosen_commands[instance]
+          })
 
     # LEADER_IS and IM_AWAKE update leader_status so it doesn't need to call check_timestamp() afterward
 
@@ -508,11 +508,11 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     self.promote_count = 0
 
   def ask_next_leader_candidate(self):
-    self.leader_status = LEADER_STATUS_DISAPPEAR
-    self.log("LEADER_STATUS_DISAPPEAR")
     self.leader_candidate = ((self.leader_candidate or self.current_leader_id) + 1) % self.nodes_count
     self.send_to_server(self.leader_candidate, WHO_IS_LEADER)
     self.candidate_last_ask = datetime.now()
+    self.leader_status = LEADER_STATUS_DISAPPEAR
+    self.log("LEADER_STATUS_DISAPPEAR")
 
   def check_timestamp(self):
     if self.node_id == self.current_leader_id:
