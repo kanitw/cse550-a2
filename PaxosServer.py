@@ -1,6 +1,7 @@
 import sys
 import SocketServer
 from message import *
+import socket
 from datetime import datetime
 
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -9,7 +10,8 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
   daemon_threads = True
   allow_reuse_address = True
 
-  def __init__(self, node_id, nodes_count, RequestHandlerClass):
+  def __init__(self, RequestHandlerClass, node_id, nodes_count):
+    SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
     self.node_id = int(node_id)
     self.nodes_count = nodes_count
     self.proposal_queue = []
@@ -40,22 +42,39 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     # print 'Timeout!'
 
   def send_to_server(self, server_id, msg_type, params):
-    msg = params.copy()
+
     params["type"] = msg_type
     params["server_id"] = self.node_id
+    msg = params.copy()
+    msgStr = json.dumps(msg)
+    self.log("send_to_server %s: %s" % (str(server_id), msgStr))
+    HOST, PORT = "localhost", 9000 + server_id
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-    self.log("send_to_server %s: %s" % (server_id, msg))
-    # FIXME(kanitw): Shih-wen please finish this method
-    pass
+    try:
+      # Connect to server and send data
+      sock.connect((HOST, PORT))
+      sock.sendall(msgStr + "\n")
+    finally:
+      sock.close()
 
   def send_to_client(self, client_id, msg_type, params):
-    msg = params.copy()
+
     params["type"] = msg_type
     params["server_id"] = self.node_id
+    msg = params.copy()
+    msgStr = json.dumps(msg)
 
-    self.log("send_to_client %s: %s" % (client_id, msg))
-    # FIXME(kanitw): Shih-wen please finish this method
-    pass
+    self.log("send_to_client %s: %s" % (str(client_id), msgStr))
+    HOST, PORT = "localhost", 8000 + client_id
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    try:
+      # Connect to server and send data
+      sock.connect((HOST, PORT))
+      sock.sendall(msgStr + "\n")
+    finally:
+      sock.close()
 
   def log(self, log):
     print "Server %s: %s" % (self.server_id, log)
@@ -386,3 +405,32 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     #      #TODO elect leader
     #}
 
+#TODO move this to another file
+class MsgHandler(SocketServer.BaseRequestHandler):
+
+  def handle(self):
+    msgStr = self.request.recv(1024).strip()
+    self.server.log("Receive data: %s" % msgStr)
+    msg = json.loads(msgStr)
+    self.server.message_handler(msg)
+
+def initialize_server():
+  server_setting = {}
+  server_id = int(sys.argv[1])
+  nodes_count = int(sys.argv[2])
+  return PaxosClient(('localhost', 8000 + client_id), MsgHandler, server_id)
+
+def running(server):
+  try:
+    while True:
+      server.handle_request()
+  except KeyboardInterrupt:
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+  if len(sys.argv) != 3:
+    print "usage: PaxosServer.py server_id nodes_count"
+    sys.exit(0)
+  server = initialize_server()
+  running(server)
