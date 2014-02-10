@@ -15,5 +15,5 @@ done
 
 sleep 1
 
-python PaxosClient.py 1 "lock_a sleep_2 unlock_a"
-python PaxosClient.py 2 "sleep_1 lock_a sleep_2 unlock_a"
+python PaxosClient.py 1 "lock_a sleep_2 unlock_a" &
+python PaxosClient.py 2 "sleep_1 lock_a sleep_2 unlock_a" &

@@ -64,6 +64,7 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
                 self.sendToServer(self.leader, CLIENT_REQUEST, params)
         elif cmd[0] == 'sleep':
             #sleep only when it gets the lock (for testing)
+            self.log("===========  SLEEP %s  =========== " % cmd[1])
             time.sleep(int(cmd[1]))
             del self.command_list[0]
             self.command_id += 1
