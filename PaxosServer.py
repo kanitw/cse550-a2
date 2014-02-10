@@ -6,7 +6,7 @@ from datetime import datetime
 import json
 
 class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
-  timeout = 30
+  timeout = 90
 
   daemon_threads = True
   allow_reuse_address = True
