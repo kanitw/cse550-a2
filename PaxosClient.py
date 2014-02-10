@@ -94,16 +94,12 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         #get response from the server about the current leader
         #if the leader is not the same, change the leader id and resend the message
         elif msg['type'] == PLEASE_ASK_LEADER:
-            if self.leader_id != msg['current_leader_id']:
-                self.leader_id = msg['current_leader_id']
+            if self.leader != msg['current_leader_id']:
+                self.leader = msg['current_leader_id']
                 self.execute_command()
 
 
-
-
-#TODO move this to another file
 class MsgHandler(SocketServer.BaseRequestHandler):
-
     def handle(self):
         msgStr = self.request.recv(1024).strip()
         self.server.log("Receive data: %s" % msgStr)
@@ -114,7 +110,7 @@ def initialize_server():
     server_setting = {}
     client_id = int(sys.argv[1])
     server_setting['client_id'] = client_id
-    server_setting['command_list'] = sys.argv[2].split('-')
+    server_setting['command_list'] = sys.argv[2].split(' ')
     return PaxosClient(('localhost', 8000 + client_id), MsgHandler, server_setting)
 
 def running(server):

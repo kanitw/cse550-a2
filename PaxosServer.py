@@ -39,6 +39,7 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
 
     server_address = ("localhost", 9000+node_id)
+    self.log("+++ Server %s STARTED at port %s +++"%(self.node_id, 9000+node_id))
 
     SocketServer.TCPServer.__init__(self, server_address, RequestHandlerClass)
 
@@ -288,9 +289,10 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
 
       msg_largest_accepted_proposal = msg["largest_accepted_proposal"]
 
-      if msg_largest_accepted_proposal is not None and \
-        msg_largest_accepted_proposal[0] > self.largest_accepted_proposal[0]:
-        self.largest_accepted_proposal = msg_largest_accepted_proposal
+      if msg_largest_accepted_proposal is not None:
+        if self.largest_accepted_proposal is None or \
+          msg_largest_accepted_proposal[0] > self.largest_accepted_proposal[0]:
+          self.largest_accepted_proposal = msg_largest_accepted_proposal
 
       self.inc_count(self.promise_count, msg["n"])
 
@@ -420,7 +422,6 @@ class PaxosServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     else:
       self.pinging_leader = False
 
-#TODO move this to another file
 class MsgHandler(SocketServer.BaseRequestHandler):
 
   def handle(self):
