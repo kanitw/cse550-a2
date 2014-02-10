@@ -10,7 +10,7 @@ sleep 2
 
 for i in {1..5}
 do
-  python PaxosServer.py $i 5 &
+  python PaxosServer.py $i 5 0 0&
 done
 
 sleep 1
