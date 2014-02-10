@@ -10,7 +10,7 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     timeout = 10
     leader = 1
     lock = set()
-    command_id = 1
+    command_id = 0
     daemon_threads = True
     allow_reuse_address = True
 
@@ -46,7 +46,7 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
         if self.command_id > len(self.command_list):
             return #do nothing
 
-        cmdStr = self.command_list[self.command_id-1]
+        cmdStr = self.command_list[self.command_id]
         cmd = cmdStr.split('_')
         if cmd[0] == 'lock':
             #send message to leader that it wants to get the lock
@@ -79,7 +79,7 @@ class PaxosClient(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
     def handle_message(self, msg):
 
         if msg['type'] == EXECUTED:
-            cmdStr = self.command_list[0]
+            cmdStr = self.command_list[msg['client_command_id']]
             cmd = cmdStr.split('_')
             if cmd[0] == 'lock':
                 self.lock.add(cmd[1])
